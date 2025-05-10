@@ -18,6 +18,11 @@ public class RouteRestController {
         this.routeService = routeService;
     }
 
+    @GetMapping("/")
+    public String testMapping(){
+        return "Hello TEST";
+    }
+
     @GetMapping("/routes/{latitude}/{longitude}/{distanceMeters}")
     public ArrayList<Route> getRoutes(@PathVariable double latitude, @PathVariable double longitude, @PathVariable int distanceMeters){
         return routeService.getRoutes(latitude, longitude, distanceMeters);
