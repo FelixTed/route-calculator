@@ -1,5 +1,6 @@
 package com.api.route_calculator.security;
 
+import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Profile;
@@ -19,14 +20,22 @@ public class SecurityConfig {
         return http
                // .csrf(AbstractHttpConfigurer::disable) // <--- ADD THIS LINE FOR TESTING
                 .authorizeHttpRequests(auth -> {
-                    auth.requestMatchers("/error").permitAll();
-                    auth.requestMatchers("/login", "/login/**", "/oauth2/**").permitAll();
+                    auth.requestMatchers("/error","/", "oauth2/**").permitAll();
+                    auth.requestMatchers("/login", "/login/**").permitAll();
                     auth.requestMatchers("/api/**").authenticated();
-                    auth.requestMatchers("/api").authenticated();
-
+                    auth.anyRequest().authenticated();
                 })
-                .oauth2Login(Customizer.withDefaults())
+                .oauth2Login(oauth2 -> oauth2.defaultSuccessUrl("http://localhost:4200",true))
                 .formLogin(Customizer.withDefaults())
+                .logout(logout -> logout
+                        .logoutUrl("api/auth/logout")
+                        .logoutSuccessHandler(((request, response, authentication) -> {
+                            response.setStatus(HttpServletResponse.SC_OK);
+                            response.getWriter().write("Logout successful");
+                        }))
+                        .invalidateHttpSession(true)
+                        .deleteCookies("JSESSIONID")
+                )
                 .build();
     }
 
