@@ -1,5 +1,6 @@
 package com.api.route_calculator.service;
 
+import Constants.Constants;
 import com.api.route_calculator.entity.route.Route;
 import com.api.route_calculator.exception.BadRouteException;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -18,6 +19,7 @@ import java.lang.reflect.Array;
 import java.util.ArrayList;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+
 
 @Service
 public class RouteServiceImpl implements RouteService {
@@ -67,8 +69,8 @@ public class RouteServiceImpl implements RouteService {
 
         int radius = distanceMeters / 2;
 
-        double[][] randomPoints = new double[5][2];
-        for (int i = 0; i < 5; ++i) {
+        double[][] randomPoints = new double[Constants.POINTS_QUANTITY][2];
+        for (int i = 0; i < Constants.POINTS_QUANTITY; ++i) {
             double norm = Math.random() * radius / 111111;
             double angle = Math.random() * 2 * Math.PI;
 
@@ -78,16 +80,33 @@ public class RouteServiceImpl implements RouteService {
             randomPoints[i][1] = latitude + dLat;
         }
 
+        // Each point will now be the closest one to the previous one
+        for(int i = 0; i < Constants.POINTS_QUANTITY - 1; i++){
+            double min = Double.MAX_VALUE;
+            int minIndex = 0;
+            for(int j = i + 1; j < Constants.POINTS_QUANTITY; j++) {
+                double curr = haversine(randomPoints[i][1], randomPoints[i][0], randomPoints[j][1], randomPoints[j][0]);
+                if(curr < min){
+                    min = curr;
+                    minIndex = j;
+                }
+            }
+            double[] temp = randomPoints[minIndex].clone();
+            randomPoints[minIndex] = randomPoints[i + 1].clone();
+            randomPoints[i+ 1] = temp.clone();
+        }
+
         // Wacky algorithm to avoid paying for better API
         int remainingDistance = distanceMeters;
         double currLongitude = longitude;
         double currLatitude = latitude;
-        for(int i = 0; i < 5; ++i){
+        for(int i = 0; i < Constants.POINTS_QUANTITY; ++i){
             try {
                 Route route = getRoute(currLongitude, currLatitude, randomPoints[i][0], randomPoints[i][1]);
 
+                // If the remaining distance is less than the distance between start and next point (with scaler), go back
                 remainingDistance =  remainingDistance - (int)route.getPaths().getFirst().getDistance();
-                if(remainingDistance < 1.10 * haversine(latitude, longitude,  randomPoints[i][1], randomPoints[i][0])){
+                if(remainingDistance < 1.20 * haversine(latitude, longitude,  randomPoints[i][1], randomPoints[i][0]) ||  i == Constants.POINTS_QUANTITY - 1){
                     Route finalRoute = getRoute(randomPoints[i][0], randomPoints[i][1], longitude, latitude);
                     routes.add(finalRoute);
                     break;
@@ -95,7 +114,10 @@ public class RouteServiceImpl implements RouteService {
                 routes.add(route);
                 currLongitude = randomPoints[i][0];
                 currLatitude = randomPoints[i][1];
-            } catch (JsonProcessingException jpe) {
+            }catch(BadRouteException bre){
+                logger.log(Level.INFO, "It is likely that one of the random points was invalid", bre);
+            }
+            catch (JsonProcessingException jpe) {
                 logger.log(Level.SEVERE, "JSON processing error", jpe);
             }
             catch (Exception e) {
