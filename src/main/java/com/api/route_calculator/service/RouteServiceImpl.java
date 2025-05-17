@@ -1,6 +1,7 @@
 package com.api.route_calculator.service;
 
 import com.api.route_calculator.entity.route.Route;
+import com.api.route_calculator.exception.BadRouteException;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -34,6 +35,32 @@ public class RouteServiceImpl implements RouteService {
         this.graphHopperWebClient = graphHopperWebClient;
     }
 
+    private Route getRoute(double startLongitude, double startLatitude, double endLongitude, double endLatitude) throws BadRouteException, JsonProcessingException {
+        String requestBody = createRequestBody(startLongitude, startLatitude, endLongitude, endLatitude);
+        logger.info("Request body: " + requestBody);
+
+        Mono<String> responseMono = graphHopperWebClient.post()
+                .uri(uriBuilder -> uriBuilder
+                        .path("/route")
+                        .queryParam("key", graphHopperApiKey)
+                        .build())
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(requestBody)
+                .retrieve()
+                .bodyToMono(String.class)
+                .doOnError(error -> {
+                    logger.severe("API Error: " + error.getMessage());
+                    throw new BadRouteException();
+                });
+
+        String response = responseMono.block();
+        logger.info("Response received: " + response);
+
+        ObjectMapper mapper = new ObjectMapper();
+        return  mapper.readValue(response, Route.class);
+
+    }
+
     @Override
     public ArrayList<Route> getRoutes(double latitude, double longitude, int distanceMeters) {
         ArrayList<Route> routes = new ArrayList<>();
@@ -57,47 +84,11 @@ public class RouteServiceImpl implements RouteService {
         double currLatitude = latitude;
         for(int i = 0; i < 5; ++i){
             try {
-                String requestBody = createRequestBody(currLongitude, currLatitude,  randomPoints[i][0], randomPoints[i][1]);
-                logger.info("Request body: " + requestBody);
-
-                Mono<String> responseMono = graphHopperWebClient.post()
-                        .uri(uriBuilder -> uriBuilder
-                                .path("/route")
-                                .queryParam("key", graphHopperApiKey)
-                                .build())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .bodyValue(requestBody)
-                        .retrieve()
-                        .bodyToMono(String.class)
-                        .doOnError(error -> logger.severe("API Error: " + error.getMessage()));
-
-                String response = responseMono.block();
-                logger.info("Response received: " + response);
-
-                ObjectMapper mapper = new ObjectMapper();
-                Route route = mapper.readValue(response, Route.class);
+                Route route = getRoute(currLongitude, currLatitude, randomPoints[i][0], randomPoints[i][1]);
 
                 remainingDistance =  remainingDistance - (int)route.getPaths().getFirst().getDistance();
                 if(remainingDistance < 1.10 * haversine(latitude, longitude,  randomPoints[i][1], randomPoints[i][0])){
-                    String finalRequestBody = createRequestBody(randomPoints[i][0], randomPoints[i][1], longitude, latitude);
-                    logger.info("Request body: " + finalRequestBody);
-
-                    Mono<String> finalResponseMono = graphHopperWebClient.post()
-                            .uri(uriBuilder -> uriBuilder
-                                    .path("/route")
-                                    .queryParam("key", graphHopperApiKey)
-                                    .build())
-                            .contentType(MediaType.APPLICATION_JSON)
-                            .bodyValue(finalRequestBody)
-                            .retrieve()
-                            .bodyToMono(String.class)
-                            .doOnError(error -> logger.severe("API Error: " + error.getMessage()));
-
-                    String finalResponse = finalResponseMono.block();
-                    logger.info("Response received: " + finalResponse);
-
-                    ObjectMapper finalMapper = new ObjectMapper();
-                    Route finalRoute = finalMapper.readValue(finalResponse, Route.class);
+                    Route finalRoute = getRoute(randomPoints[i][0], randomPoints[i][1], longitude, latitude);
                     routes.add(finalRoute);
                     break;
                 }
@@ -106,7 +97,8 @@ public class RouteServiceImpl implements RouteService {
                 currLatitude = randomPoints[i][1];
             } catch (JsonProcessingException jpe) {
                 logger.log(Level.SEVERE, "JSON processing error", jpe);
-            } catch (Exception e) {
+            }
+            catch (Exception e) {
                 logger.log(Level.SEVERE, "Error calling GraphHopper API", e);
             }
         }
